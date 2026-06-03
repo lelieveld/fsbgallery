@@ -14,10 +14,11 @@ const PUBLIC_DIR = path.join(__dirname, "public");
 const DOWNLOAD_LOG_FILE = process.env.DOWNLOAD_LOG_FILE || path.join(UPLOAD_DIR, "downloads.jsonl");
 const GALLERY_FILE = process.env.GALLERY_FILE || path.join(UPLOAD_DIR, "galleries.json");
 const CLOUDINARY_PHOTO_FILE = process.env.CLOUDINARY_PHOTO_FILE || path.join(UPLOAD_DIR, "cloudinary-photos.json");
-const CLOUDINARY_CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME || "";
-const CLOUDINARY_API_KEY = process.env.CLOUDINARY_API_KEY || "";
-const CLOUDINARY_API_SECRET = process.env.CLOUDINARY_API_SECRET || "";
-const CLOUDINARY_BASE_FOLDER = process.env.CLOUDINARY_BASE_FOLDER || "fetish-social-brabant";
+const cloudinaryUrl = parseCloudinaryUrl(process.env.CLOUDINARY_URL || "");
+const CLOUDINARY_CLOUD_NAME = ((process.env.CLOUDINARY_CLOUD_NAME || cloudinaryUrl.cloudName) || "").trim();
+const CLOUDINARY_API_KEY = ((process.env.CLOUDINARY_API_KEY || cloudinaryUrl.apiKey) || "").trim();
+const CLOUDINARY_API_SECRET = ((process.env.CLOUDINARY_API_SECRET || cloudinaryUrl.apiSecret) || "").trim();
+const CLOUDINARY_BASE_FOLDER = (process.env.CLOUDINARY_BASE_FOLDER || "fetish-social-brabant").trim();
 const MAX_UPLOAD_BYTES = 60 * 1024 * 1024;
 const COOKIE_NAME = "gallery_auth";
 
@@ -36,6 +37,23 @@ const imageTypes = new Map([
 ]);
 
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
+function parseCloudinaryUrl(value) {
+  if (!value) return {};
+
+  try {
+    const parsed = new URL(value.trim());
+    if (parsed.protocol !== "cloudinary:") return {};
+
+    return {
+      apiKey: decodeURIComponent(parsed.username || ""),
+      apiSecret: decodeURIComponent(parsed.password || ""),
+      cloudName: (parsed.hostname || "").trim()
+    };
+  } catch {
+    return {};
+  }
+}
 
 function escapeHtml(value) {
   return String(value)
