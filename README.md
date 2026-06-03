@@ -46,4 +46,8 @@ Uploads, galerijen en downloadlogs in een gewone Render Web Service kunnen verdw
 
 Met Cloudinary staan de foto’s zelf in Cloudinary. Het galerijbestand, de Cloudinary-fotolijst en het downloadlog worden standaard in deze map bewaard. Wil je aparte paden gebruiken, zet dan `GALLERY_FILE`, `CLOUDINARY_PHOTO_FILE` en `DOWNLOAD_LOG_FILE`.
 
+Het bezoekerswachtwoord dat je via beheer aanpast wordt opgeslagen in `SETTINGS_FILE`. Op Render kun je hiervoor bijvoorbeeld zetten:
+
+- `SETTINGS_FILE=/data/settings.json`
+
 Zonder disk kun je foto's beter lokaal in de map `uploads` zetten en daarna opnieuw deployen.

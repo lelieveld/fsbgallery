@@ -14,6 +14,7 @@ const PUBLIC_DIR = path.join(__dirname, "public");
 const DOWNLOAD_LOG_FILE = process.env.DOWNLOAD_LOG_FILE || path.join(UPLOAD_DIR, "downloads.jsonl");
 const GALLERY_FILE = process.env.GALLERY_FILE || path.join(UPLOAD_DIR, "galleries.json");
 const CLOUDINARY_PHOTO_FILE = process.env.CLOUDINARY_PHOTO_FILE || path.join(UPLOAD_DIR, "cloudinary-photos.json");
+const SETTINGS_FILE = process.env.SETTINGS_FILE || path.join(UPLOAD_DIR, "settings.json");
 const cloudinaryUrl = parseCloudinaryUrl(process.env.CLOUDINARY_URL || "");
 const CLOUDINARY_CLOUD_NAME = ((cloudinaryUrl.cloudName || process.env.CLOUDINARY_CLOUD_NAME) || "").trim();
 const CLOUDINARY_API_KEY = ((cloudinaryUrl.apiKey || process.env.CLOUDINARY_API_KEY) || "").trim();
@@ -114,6 +115,48 @@ function isAuthenticated(req) {
 
 function isAdmin(req) {
   return getSession(req)?.role === "admin";
+}
+
+async function readSettings() {
+  try {
+    return JSON.parse(await fs.promises.readFile(SETTINGS_FILE, "utf8"));
+  } catch (error) {
+    if (error.code === "ENOENT") return {};
+    throw error;
+  }
+}
+
+async function writeSettings(settings) {
+  await fs.promises.writeFile(SETTINGS_FILE, JSON.stringify(settings, null, 2), "utf8");
+}
+
+function hashPassword(password, salt) {
+  return crypto.pbkdf2Sync(password, salt, 120000, 32, "sha256").toString("hex");
+}
+
+async function verifyVisitorPassword(password) {
+  const settings = await readSettings();
+  const visitor = settings.visitorPassword;
+
+  if (visitor?.salt && visitor?.hash) {
+    return hashPassword(password, visitor.salt) === visitor.hash;
+  }
+
+  return password === PASSWORD;
+}
+
+async function updateVisitorPassword(password) {
+  const cleanPassword = String(password || "").trim();
+  if (cleanPassword.length < 6) throw new Error("Gebruik minimaal 6 tekens voor het bezoekerswachtwoord.");
+
+  const settings = await readSettings();
+  const salt = crypto.randomBytes(16).toString("hex");
+  settings.visitorPassword = {
+    salt,
+    hash: hashPassword(cleanPassword, salt),
+    updatedAt: new Date().toISOString()
+  };
+  await writeSettings(settings);
 }
 
 function redirect(res, location) {
@@ -599,7 +642,7 @@ function renderAdmin(galleries, photoMap, downloads, message = "", error = "") {
                   <button class="danger-button" type="submit">Verwijderen</button>
                 </form>
               </article>`
-            )
+    )
             .join("")
         : `<p class="muted">Nog geen foto's in deze galerij.</p>`;
 
@@ -655,6 +698,13 @@ function renderAdmin(galleries, photoMap, downloads, message = "", error = "") {
         </form>
         ${message ? `<p class="success">${escapeHtml(message)}</p>` : ""}
         ${error ? `<p class="error">${escapeHtml(error)}</p>` : ""}
+      </section>
+      <section class="upload-panel">
+        <form action="/admin/update-visitor-password" method="post">
+          <label for="visitor-password">Bezoekerswachtwoord aanpassen</label>
+          <input id="visitor-password" name="password" type="password" autocomplete="new-password" minlength="6" required />
+          <button type="submit">Wachtwoord opslaan</button>
+        </form>
       </section>
       ${galleryRows}
       <section class="download-log" aria-label="Download overzicht">
@@ -811,7 +861,7 @@ async function handleRequest(req, res) {
       return;
     }
 
-    if (fields.get("password") === PASSWORD) {
+    if (await verifyVisitorPassword(fields.get("password"))) {
       res.writeHead(302, { Location: "/gallery", "Set-Cookie": makeSessionCookie({ role: "visitor", username }) });
       res.end();
     } else {
@@ -859,6 +909,22 @@ async function handleRequest(req, res) {
 
   if (!isAuthenticated(req)) {
     redirect(res, "/");
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/admin/update-visitor-password") {
+    if (!isAdmin(req)) {
+      redirect(res, "/admin");
+      return;
+    }
+
+    try {
+      const fields = parseUrlEncoded(await collectBody(req));
+      await updateVisitorPassword(fields.get("password"));
+      redirect(res, "/admin?message=Bezoekerswachtwoord%20aangepast.");
+    } catch (error) {
+      redirect(res, `/admin?error=${encodeURIComponent(error.message)}`);
+    }
     return;
   }
 
@@ -942,7 +1008,11 @@ async function handleRequest(req, res) {
     const cloudPhoto = (await listCloudinaryPhotos(gallerySlug)).find((photo) => photo.id === filename);
     if (cloudPhoto) {
       if (type === "download") await logDownload(req, gallerySlug, cloudPhoto.name);
-      redirect(res, cloudPhoto.secureUrl);
+      const attachmentUrl =
+        type === "download"
+          ? cloudPhoto.secureUrl.replace("/upload/", `/upload/fl_attachment:${encodeURIComponent(cloudPhoto.name.replace(/\.[^.]+$/, ""))}/`)
+          : cloudPhoto.secureUrl;
+      redirect(res, attachmentUrl);
       return;
     }
 
