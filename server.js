@@ -362,6 +362,42 @@ function postCloudinary(endpoint, fields) {
   });
 }
 
+function getCloudinary(endpoint, params) {
+  return new Promise((resolve, reject) => {
+    const query = new URLSearchParams(params).toString();
+    const auth = Buffer.from(`${CLOUDINARY_API_KEY}:${CLOUDINARY_API_SECRET}`).toString("base64");
+    const req = https.request(
+      {
+        hostname: "api.cloudinary.com",
+        path: `/v1_1/${encodeURIComponent(CLOUDINARY_CLOUD_NAME)}${endpoint}?${query}`,
+        method: "GET",
+        headers: {
+          Authorization: `Basic ${auth}`
+        }
+      },
+      (res) => {
+        const chunks = [];
+        res.on("data", (chunk) => chunks.push(chunk));
+        res.on("end", () => {
+          const text = Buffer.concat(chunks).toString("utf8");
+          let data;
+          try {
+            data = JSON.parse(text);
+          } catch {
+            data = { error: { message: text } };
+          }
+
+          if (res.statusCode >= 200 && res.statusCode < 300) resolve(data);
+          else reject(new Error(data.error?.message || "Cloudinary lijst ophalen mislukt."));
+        });
+      }
+    );
+
+    req.on("error", reject);
+    req.end();
+  });
+}
+
 async function readCloudinaryPhotoStore() {
   try {
     const data = JSON.parse(await fs.promises.readFile(CLOUDINARY_PHOTO_FILE, "utf8"));
@@ -377,6 +413,29 @@ async function writeCloudinaryPhotoStore(store) {
 }
 
 async function listCloudinaryPhotos(gallerySlug) {
+  if (cloudinaryConfigured()) {
+    try {
+      const prefix = `${CLOUDINARY_BASE_FOLDER}/${gallerySlug}/`;
+      const result = await getCloudinary("/resources/image/upload", {
+        prefix,
+        max_results: "500",
+        direction: "desc"
+      });
+
+      return (result.resources || []).map((resource) => ({
+        source: "cloudinary",
+        id: resource.public_id,
+        name: `${path.basename(resource.public_id)}.${resource.format || "jpg"}`,
+        publicId: resource.public_id,
+        secureUrl: resource.secure_url,
+        uploadedAt: resource.created_at || new Date().toISOString(),
+        size: resource.bytes || 0
+      }));
+    } catch (error) {
+      console.error("Cloudinary lijst ophalen mislukt:", error.message);
+    }
+  }
+
   const store = await readCloudinaryPhotoStore();
   return Array.isArray(store[gallerySlug]) ? store[gallerySlug] : [];
 }
@@ -389,12 +448,16 @@ async function saveCloudinaryPhoto(gallerySlug, photo) {
 }
 
 async function removeCloudinaryPhoto(gallerySlug, photoId) {
+  if (cloudinaryConfigured() && photoId.includes(`${CLOUDINARY_BASE_FOLDER}/`)) {
+    await destroyCloudinaryImage(photoId);
+  }
+
   const store = await readCloudinaryPhotoStore();
   const photos = Array.isArray(store[gallerySlug]) ? store[gallerySlug] : [];
   const photo = photos.find((item) => item.id === photoId);
   store[gallerySlug] = photos.filter((item) => item.id !== photoId);
   await writeCloudinaryPhotoStore(store);
-  return photo;
+  return photo || null;
 }
 
 async function removeCloudinaryGallery(gallerySlug) {
@@ -426,7 +489,7 @@ async function uploadToCloudinary(gallerySlug, file) {
   const cleanName = path.basename(file.originalName);
   return {
     source: "cloudinary",
-    id: crypto.randomBytes(10).toString("hex"),
+    id: result.public_id,
     name: cleanName,
     publicId: result.public_id,
     secureUrl: result.secure_url,
@@ -993,7 +1056,7 @@ async function handleRequest(req, res) {
     const cloudPhoto = await removeCloudinaryPhoto(gallerySlug, photoIdOrFilename);
     if (cloudPhoto) {
       await destroyCloudinaryImage(cloudPhoto.publicId);
-    } else {
+    } else if (!photoIdOrFilename.includes(`${CLOUDINARY_BASE_FOLDER}/`)) {
       const filePath = safeImagePath(gallerySlug, photoIdOrFilename);
       if (filePath && fs.existsSync(filePath)) await fs.promises.unlink(filePath);
     }
