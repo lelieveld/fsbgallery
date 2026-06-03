@@ -1,0 +1,13 @@
+{
+  "name": "private-photo-gallery",
+  "version": "1.0.0",
+  "description": "Een afgeschermde fotogalerij voor Render.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {},
+  "engines": {
+    "node": ">=20"
+  }
+}
