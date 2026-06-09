@@ -324,8 +324,8 @@ select:focus {
 
 .brand-logo {
   display: block;
-  width: min(52vw, 720px);
-  min-width: 280px;
+  width: clamp(220px, 34vw, 430px);
+  min-width: 0;
   text-decoration: none;
 }
 
@@ -333,6 +333,9 @@ select:focus {
   display: block;
   width: 100%;
   height: auto;
+  max-height: 58px;
+  object-fit: contain;
+  object-position: left center;
 }
 
 .topbar nav {
@@ -926,8 +929,11 @@ select:focus {
   }
 
   .brand-logo {
-    width: min(100%, 420px);
-    min-width: 0;
+    width: min(100%, 300px);
+  }
+
+  .brand-logo img {
+    max-height: 48px;
   }
 
   .gallery-tabs {
