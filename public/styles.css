@@ -315,7 +315,7 @@ select:focus {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  min-height: 72px;
+  min-height: 56px;
   padding: 0 clamp(16px, 4vw, 44px);
   border-bottom: 1px solid rgba(224, 24, 24, 0.72);
   background: rgba(0, 0, 0, 0.9);
@@ -324,7 +324,7 @@ select:focus {
 
 .brand-logo {
   display: block;
-  width: clamp(220px, 34vw, 430px);
+  width: clamp(150px, 22vw, 270px);
   min-width: 0;
   text-decoration: none;
 }
@@ -333,7 +333,7 @@ select:focus {
   display: block;
   width: 100%;
   height: auto;
-  max-height: 58px;
+  max-height: 38px;
   object-fit: contain;
   object-position: left center;
 }
@@ -929,11 +929,11 @@ select:focus {
   }
 
   .brand-logo {
-    width: min(100%, 300px);
+    width: min(100%, 220px);
   }
 
   .brand-logo img {
-    max-height: 48px;
+    max-height: 34px;
   }
 
   .gallery-tabs {
