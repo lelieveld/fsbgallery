@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="170" viewBox="0 0 980 170">
+  <rect width="980" height="170" fill="#000"/>
+  <g transform="translate(18 -12) rotate(-10 150 85)">
+    <path d="M18 26 C70 0 123 15 178 42 C224 65 274 66 326 42 L336 124 C284 150 226 148 176 124 C119 96 66 91 10 122 Z" fill="url(#checker)"/>
+    <path d="M18 26 C70 0 123 15 178 42 C224 65 274 66 326 42 L336 124 C284 150 226 148 176 124 C119 96 66 91 10 122 Z" fill="url(#shine)" opacity=".85"/>
+  </g>
+  <text x="220" y="108" font-family="Impact, Arial Black, Arial, sans-serif" font-size="76" fill="#fff" stroke="#000" stroke-width="7" paint-order="stroke fill" letter-spacing="1">FETISH SOCIAL</text>
+  <text x="700" y="108" font-family="Impact, Arial Black, Arial, sans-serif" font-size="76" fill="#e00000" stroke="#000" stroke-width="7" paint-order="stroke fill" letter-spacing="1">BRABANT</text>
+  <defs>
+    <pattern id="checker" width="60" height="46" patternUnits="userSpaceOnUse">
+      <rect width="30" height="23" fill="#d60000"/>
+      <rect x="30" width="30" height="23" fill="#fff"/>
+      <rect y="23" width="30" height="23" fill="#fff"/>
+      <rect x="30" y="23" width="30" height="23" fill="#d60000"/>
+    </pattern>
+    <linearGradient id="shine" x1="0" x2="1">
+      <stop offset="0" stop-color="#000" stop-opacity=".25"/>
+      <stop offset=".22" stop-color="#fff" stop-opacity=".35"/>
+      <stop offset=".42" stop-color="#000" stop-opacity=".18"/>
+      <stop offset=".65" stop-color="#fff" stop-opacity=".25"/>
+      <stop offset="1" stop-color="#000" stop-opacity=".3"/>
+    </linearGradient>
+  </defs>
+</svg>

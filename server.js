@@ -689,7 +689,9 @@ function pageShell(title, body) {
 
 function topbar() {
   return `<header class="topbar">
-    <a class="brand" href="/gallery"><span>Fetish</span> Social Brabant</a>
+    <a class="brand brand-logo" href="/gallery" aria-label="Fetish Social Brabant">
+      <img src="/fsb-logo-wide.png" alt="Fetish Social Brabant" />
+    </a>
     <nav aria-label="Navigatie">
       <a href="/gallery">Galerij</a>
       <a href="/upload">Upload jouw foto's</a>
@@ -1148,6 +1150,7 @@ async function serveStatic(req, res, pathname) {
     ["/styles.css", ["styles.css", "text/css; charset=utf-8"]],
     ["/gallery.js", ["gallery.js", "application/javascript; charset=utf-8"]],
     ["/upload.js", ["upload.js", "application/javascript; charset=utf-8"]],
+    ["/fsb-logo-wide.png", ["fsb-logo-wide.png", "image/png"]],
     ["/fetish-social-brabant.png", ["fetish-social-brabant.png", "image/png"]]
   ]);
 

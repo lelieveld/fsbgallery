@@ -322,14 +322,17 @@ select:focus {
   backdrop-filter: blur(12px);
 }
 
-.brand {
-  color: #fff;
-  font-size: clamp(1.25rem, 3vw, 2.1rem);
+.brand-logo {
+  display: block;
+  width: min(52vw, 720px);
+  min-width: 280px;
   text-decoration: none;
 }
 
-.brand span {
-  color: var(--accent-hot);
+.brand-logo img {
+  display: block;
+  width: 100%;
+  height: auto;
 }
 
 .topbar nav {
@@ -920,6 +923,11 @@ select:focus {
 
   .topbar nav {
     flex-wrap: wrap;
+  }
+
+  .brand-logo {
+    width: min(100%, 420px);
+    min-width: 0;
   }
 
   .gallery-tabs {
