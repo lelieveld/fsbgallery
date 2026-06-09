@@ -2,6 +2,8 @@
 
 Dit is een kleine website voor Render waar bezoekers met hun naam en een wachtwoord foto's per galerij kunnen bekijken en downloaden. Via de beheerpagina kun je galerijen aanmaken/verwijderen, foto's per galerij uploaden/verwijderen en zien wie welke foto's heeft gedownload.
 
+Bezoekers kunnen ook foto's insturen met verplichte naam en e-mail. Deze foto's komen eerst in een Cloudinary `pending` map en zijn niet direct zichtbaar. In beheer kan de beheerder ze bekijken, goedkeuren en naar een gekozen galerij verplaatsen.
+
 ## Lokaal starten
 
 1. Start de website:

@@ -418,19 +418,24 @@ async function listCloudinaryPhotos(gallerySlug) {
       const prefix = `${CLOUDINARY_BASE_FOLDER}/${gallerySlug}/`;
       const result = await getCloudinary("/resources/image/upload", {
         prefix,
+        context: "true",
         max_results: "500",
         direction: "desc"
       });
 
-      return (result.resources || []).map((resource) => ({
-        source: "cloudinary",
-        id: resource.public_id,
-        name: `${path.basename(resource.public_id)}.${resource.format || "jpg"}`,
-        publicId: resource.public_id,
-        secureUrl: resource.secure_url,
-        uploadedAt: resource.created_at || new Date().toISOString(),
-        size: resource.bytes || 0
-      }));
+      return (result.resources || []).map((resource) => {
+        const context = resource.context?.custom || resource.context || {};
+        return {
+          source: "cloudinary",
+          id: resource.public_id,
+          name: `${path.basename(resource.public_id)}.${resource.format || "jpg"}`,
+          publicId: resource.public_id,
+          secureUrl: resource.secure_url,
+          uploadedAt: resource.created_at || new Date().toISOString(),
+          size: resource.bytes || 0,
+          uploaderName: context.submitter_name || ""
+        };
+      });
     } catch (error) {
       console.error("Cloudinary lijst ophalen mislukt:", error.message);
     }
@@ -496,6 +501,85 @@ async function uploadToCloudinary(gallerySlug, file) {
     uploadedAt: result.created_at || new Date().toISOString(),
     size: result.bytes || file.data.length
   };
+}
+
+function cloudinaryContextValue(value) {
+  return String(value || "")
+    .trim()
+    .slice(0, 120)
+    .replace(/[|=]/g, " ");
+}
+
+async function uploadPendingToCloudinary(file, submitter) {
+  if (!cloudinaryConfigured()) throw new Error("Cloudinary is nog niet ingesteld.");
+
+  const timestamp = Math.floor(Date.now() / 1000);
+  const folder = `${CLOUDINARY_BASE_FOLDER}/pending`;
+  const context = `submitter_name=${cloudinaryContextValue(submitter.name)}|submitter_email=${cloudinaryContextValue(submitter.email)}`;
+  const uploadParams = { context, folder, timestamp };
+  const signature = cloudinarySignature(uploadParams);
+  const dataUri = `data:${file.contentType};base64,${file.data.toString("base64")}`;
+
+  await postCloudinary("/image/upload", {
+    file: dataUri,
+    context,
+    folder,
+    timestamp,
+    api_key: CLOUDINARY_API_KEY,
+    signature
+  });
+}
+
+async function listPendingUploads() {
+  if (!cloudinaryConfigured()) return [];
+
+  const prefix = `${CLOUDINARY_BASE_FOLDER}/pending/`;
+  const result = await getCloudinary("/resources/image/upload", {
+    prefix,
+    context: "true",
+    max_results: "500",
+    direction: "desc"
+  });
+
+  return (result.resources || []).map((resource) => {
+    const context = resource.context?.custom || resource.context || {};
+    return {
+      id: resource.public_id,
+      publicId: resource.public_id,
+      name: `${path.basename(resource.public_id)}.${resource.format || "jpg"}`,
+      secureUrl: resource.secure_url,
+      uploadedAt: resource.created_at || new Date().toISOString(),
+      submitterName: context.submitter_name || "Onbekend",
+      submitterEmail: context.submitter_email || "Onbekend"
+    };
+  });
+}
+
+async function approvePendingUpload(publicId, gallerySlug, uploaderName = "") {
+  if (!cloudinaryConfigured()) throw new Error("Cloudinary is nog niet ingesteld.");
+
+  const galleries = await listGalleries();
+  if (!galleries.some((gallery) => gallery.slug === gallerySlug)) throw new Error("Deze galerij bestaat niet.");
+
+  const timestamp = Math.floor(Date.now() / 1000);
+  const extensionlessName = path.basename(publicId);
+  const toPublicId = `${CLOUDINARY_BASE_FOLDER}/${gallerySlug}/${Date.now()}-${extensionlessName}`;
+  const params = { from_public_id: publicId, overwrite: "true", timestamp, to_public_id: toPublicId };
+  const signature = cloudinarySignature(params);
+  await postCloudinary("/image/rename", {
+    ...params,
+    api_key: CLOUDINARY_API_KEY,
+    signature
+  });
+
+  const context = `submitter_name=${cloudinaryContextValue(uploaderName)}`;
+  const contextTimestamp = Math.floor(Date.now() / 1000);
+  const contextParams = { context, public_id: toPublicId, timestamp: contextTimestamp, type: "upload" };
+  await postCloudinary("/image/upload/explicit", {
+    ...contextParams,
+    api_key: CLOUDINARY_API_KEY,
+    signature: cloudinarySignature(contextParams)
+  });
 }
 
 async function destroyCloudinaryImage(publicId) {
@@ -622,7 +706,7 @@ function renderAdminLogin(error = "") {
   ).replace("<body>", '<body class="login-page">');
 }
 
-function renderGallery(galleries, activeGallery, photos) {
+function renderGallery(galleries, activeGallery, photos, notice = "", error = "") {
   const active = activeGallery || galleries[0];
   const galleryButtons = galleries
     .map(
@@ -644,6 +728,7 @@ function renderGallery(galleries, activeGallery, photos) {
               <button class="thumbnail-button" type="button" data-index="${index}" data-src="${photoUrl}" data-name="${escapeHtml(cleanName)}" data-download="${downloadUrl}">
                 <img src="${photoUrl}" alt="Foto ${escapeHtml(photo.name)}" loading="lazy" />
               </button>
+              ${photo.uploaderName ? `<p class="photo-credit">photo's by: ${escapeHtml(photo.uploaderName)}</p>` : ""}
               <div class="photo-actions">
                 <span>${escapeHtml(cleanName)}</span>
                 <a href="${downloadUrl}">Download</a>
@@ -665,6 +750,26 @@ function renderGallery(galleries, activeGallery, photos) {
         <p class="eyebrow">Foto gallery</p>
         <h1>Bekijk & download</h1>
         <p class="section-line">Kies een galerij, open een thumbnail groter en blader door de foto's.</p>
+      </section>
+      <section class="visitor-submit">
+        <div>
+          <p class="eyebrow">Foto's insturen</p>
+          <h2>Deel jouw foto's</h2>
+          <p class="section-line">Je upload komt eerst in beheer terecht. Pas na goedkeuring wordt hij zichtbaar voor iedereen.</p>
+        </div>
+        <form action="/submit-photos" method="post" enctype="multipart/form-data">
+          <label for="submitter-name">Naam</label>
+          <p class="field-hint">Deze naam wordt zichtbaar voor alle bezoekers als je foto wordt goedgekeurd.</p>
+          <input id="submitter-name" name="name" type="text" required />
+          <label for="submitter-email">E-mail</label>
+          <p class="field-hint">Je e-mailadres blijft verborgen en is alleen zichtbaar voor beheer.</p>
+          <input id="submitter-email" name="email" type="email" required />
+          <label for="submitter-photos">Foto's</label>
+          <input id="submitter-photos" name="photos" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple required />
+          <button type="submit">Insturen</button>
+          ${notice ? `<p class="success">${escapeHtml(notice)}</p>` : ""}
+          ${error ? `<p class="error">${escapeHtml(error)}</p>` : ""}
+        </form>
       </section>
       <section class="gallery-tabs" aria-label="Galerijen">
         ${galleryButtons}
@@ -691,7 +796,7 @@ function renderGallery(galleries, activeGallery, photos) {
   );
 }
 
-function renderAdmin(galleries, photoMap, downloads, message = "", error = "") {
+function renderAdmin(galleries, photoMap, downloads, pendingUploads, message = "", error = "") {
   const galleryRows = galleries
     .map((gallery) => {
       const photos = photoMap[gallery.slug] || [];
@@ -744,6 +849,33 @@ function renderAdmin(galleries, photoMap, downloads, message = "", error = "") {
         .join("")
     : `<p class="muted">Er zijn nog geen downloads geregistreerd.</p>`;
 
+  const galleryOptions = galleries.map((gallery) => `<option value="${escapeHtml(gallery.slug)}">${escapeHtml(gallery.title)}</option>`).join("");
+  const pendingRows = pendingUploads.length
+    ? pendingUploads
+        .map(
+          (photo) => `<article class="pending-row">
+            <img src="${escapeHtml(photo.secureUrl)}" alt="Ingezonden foto ${escapeHtml(photo.name)}" loading="lazy" />
+            <div>
+              <span>${escapeHtml(photo.submitterName)}</span>
+              <small>${escapeHtml(photo.submitterEmail)}</small>
+              <small>${escapeHtml(formatDate(photo.uploadedAt))}</small>
+            </div>
+            <form action="/admin/approve-submission/${encodeURIComponent(photo.publicId)}" method="post">
+              <input type="hidden" name="uploaderName" value="${escapeHtml(photo.submitterName)}" />
+              <label for="approve-${escapeHtml(photo.publicId)}">Naar galerij</label>
+              <select id="approve-${escapeHtml(photo.publicId)}" name="gallery" required>
+                ${galleryOptions}
+              </select>
+              <button type="submit">Goedkeuren</button>
+            </form>
+            <form action="/admin/reject-submission/${encodeURIComponent(photo.publicId)}" method="post">
+              <button class="danger-button" type="submit">Afwijzen</button>
+            </form>
+          </article>`
+        )
+        .join("")
+    : `<p class="muted">Er zijn geen nieuwe inzendingen.</p>`;
+
   return pageShell(
     "Foto's beheren",
     `${topbar()}<main class="page admin-page">
@@ -768,6 +900,10 @@ function renderAdmin(galleries, photoMap, downloads, message = "", error = "") {
           <input id="visitor-password" name="password" type="password" autocomplete="new-password" minlength="6" required />
           <button type="submit">Wachtwoord opslaan</button>
         </form>
+      </section>
+      <section class="pending-list" aria-label="Ingezonden foto's">
+        <h2>Inzendingen</h2>
+        ${pendingRows}
       </section>
       ${galleryRows}
       <section class="download-log" aria-label="Download overzicht">
@@ -823,6 +959,7 @@ function sanitizeFilename(originalName) {
 function parseMultipart(buffer, boundary) {
   const marker = Buffer.from(`--${boundary}`);
   const files = [];
+  const fields = {};
   let cursor = 0;
 
   while (cursor < buffer.length) {
@@ -839,26 +976,29 @@ function parseMultipart(buffer, boundary) {
     const headerEnd = buffer.indexOf(Buffer.from("\r\n\r\n"), contentStart);
     if (headerEnd !== -1 && headerEnd < partEnd) {
       const headers = buffer.slice(contentStart, headerEnd).toString("latin1");
+      const fieldMatch = headers.match(/name="([^"]*)"/i);
       const filenameMatch = headers.match(/filename="([^"]*)"/i);
       const typeMatch = headers.match(/content-type:\s*([^\r\n]+)/i);
+      const dataEnd = buffer.slice(partEnd - 2, partEnd).toString() === "\r\n" ? partEnd - 2 : partEnd;
+      const data = buffer.slice(headerEnd + 4, dataEnd);
 
       if (filenameMatch && filenameMatch[1]) {
         const originalName = path.basename(filenameMatch[1]);
         const extension = path.extname(originalName).toLowerCase();
         const contentType = typeMatch ? typeMatch[1].trim().toLowerCase() : "";
-        const dataEnd = buffer.slice(partEnd - 2, partEnd).toString() === "\r\n" ? partEnd - 2 : partEnd;
-        const data = buffer.slice(headerEnd + 4, dataEnd);
 
         if (imageTypes.has(extension) && contentType.startsWith("image/") && data.length > 0) {
           files.push({ originalName, contentType, data });
         }
+      } else if (fieldMatch && fieldMatch[1]) {
+        fields[fieldMatch[1]] = data.toString("utf8").trim();
       }
     }
 
     cursor = partEnd;
   }
 
-  return files;
+  return { files, fields };
 }
 
 async function saveUploadedPhotos(req, gallerySlug) {
@@ -873,7 +1013,7 @@ async function saveUploadedPhotos(req, gallerySlug) {
   if (!boundaryMatch) throw new Error("Geen geldige upload ontvangen.");
 
   const body = await collectBody(req);
-  const files = parseMultipart(body, boundaryMatch[1] || boundaryMatch[2]);
+  const { files } = parseMultipart(body, boundaryMatch[1] || boundaryMatch[2]);
   if (files.length === 0) throw new Error("Kies minimaal een JPG, PNG, WebP of GIF.");
 
   if (cloudinaryConfigured()) {
@@ -885,6 +1025,27 @@ async function saveUploadedPhotos(req, gallerySlug) {
 
   await fs.promises.mkdir(galleryDir, { recursive: true });
   await Promise.all(files.map((file) => fs.promises.writeFile(path.join(galleryDir, sanitizeFilename(file.originalName)), file.data)));
+}
+
+async function saveVisitorSubmission(req) {
+  if (!cloudinaryConfigured()) throw new Error("Cloudinary moet actief zijn voor bezoekersinzendingen.");
+
+  const contentType = req.headers["content-type"] || "";
+  const boundaryMatch = contentType.match(/boundary=(?:"([^"]+)"|([^;]+))/i);
+  if (!boundaryMatch) throw new Error("Geen geldige upload ontvangen.");
+
+  const body = await collectBody(req);
+  const { files, fields } = parseMultipart(body, boundaryMatch[1] || boundaryMatch[2]);
+  const name = String(fields.name || "").trim().slice(0, 80);
+  const email = String(fields.email || "").trim().slice(0, 120);
+
+  if (!name) throw new Error("Naam is verplicht.");
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("Vul een geldig e-mailadres in.");
+  if (files.length === 0) throw new Error("Kies minimaal een JPG, PNG, WebP of GIF.");
+
+  for (const file of files) {
+    await uploadPendingToCloudinary(file, { name, email });
+  }
 }
 
 async function serveStatic(req, res, pathname) {
@@ -949,8 +1110,11 @@ async function handleRequest(req, res) {
     }
 
     const galleries = await listGalleries();
-    const [photoMap, downloads] = await Promise.all([listGalleryPhotoMap(galleries), listDownloads()]);
-    sendHtml(res, renderAdmin(galleries, photoMap, downloads, url.searchParams.get("message") || "", url.searchParams.get("error") || ""));
+    const [photoMap, downloads, pendingUploads] = await Promise.all([listGalleryPhotoMap(galleries), listDownloads(), listPendingUploads()]);
+    sendHtml(
+      res,
+      renderAdmin(galleries, photoMap, downloads, pendingUploads, url.searchParams.get("message") || "", url.searchParams.get("error") || "")
+    );
     return;
   }
 
@@ -975,6 +1139,16 @@ async function handleRequest(req, res) {
     return;
   }
 
+  if (req.method === "POST" && pathname === "/submit-photos") {
+    try {
+      await saveVisitorSubmission(req);
+      redirect(res, "/gallery?message=Foto%27s%20zijn%20ingestuurd%20en%20wachten%20op%20goedkeuring.");
+    } catch (error) {
+      redirect(res, `/gallery?error=${encodeURIComponent(error.message)}`);
+    }
+    return;
+  }
+
   if (req.method === "POST" && pathname === "/admin/update-visitor-password") {
     if (!isAdmin(req)) {
       redirect(res, "/admin");
@@ -995,7 +1169,42 @@ async function handleRequest(req, res) {
     const galleries = await listGalleries();
     const requestedSlug = slugify(url.searchParams.get("g") || "");
     const activeGallery = galleries.find((gallery) => gallery.slug === requestedSlug) || galleries[0];
-    sendHtml(res, renderGallery(galleries, activeGallery, await listPhotos(activeGallery.slug)));
+    sendHtml(
+      res,
+      renderGallery(galleries, activeGallery, await listPhotos(activeGallery.slug), url.searchParams.get("message") || "", url.searchParams.get("error") || "")
+    );
+    return;
+  }
+
+  if (req.method === "POST" && pathname.startsWith("/admin/approve-submission/")) {
+    if (!isAdmin(req)) {
+      redirect(res, "/admin");
+      return;
+    }
+
+    try {
+      const publicId = pathname.replace("/admin/approve-submission/", "");
+      const fields = parseUrlEncoded(await collectBody(req));
+      await approvePendingUpload(publicId, slugify(fields.get("gallery") || ""), fields.get("uploaderName") || "");
+      redirect(res, "/admin?message=Inzending%20goedgekeurd.");
+    } catch (error) {
+      redirect(res, `/admin?error=${encodeURIComponent(error.message)}`);
+    }
+    return;
+  }
+
+  if (req.method === "POST" && pathname.startsWith("/admin/reject-submission/")) {
+    if (!isAdmin(req)) {
+      redirect(res, "/admin");
+      return;
+    }
+
+    try {
+      await destroyCloudinaryImage(pathname.replace("/admin/reject-submission/", ""));
+      redirect(res, "/admin?message=Inzending%20afgewezen.");
+    } catch (error) {
+      redirect(res, `/admin?error=${encodeURIComponent(error.message)}`);
+    }
     return;
   }
 
