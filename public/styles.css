@@ -192,6 +192,67 @@ label {
   accent-color: var(--accent);
 }
 
+.upload-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  border: 1px solid rgba(224, 24, 24, 0.72);
+  border-radius: 8px;
+  background: rgba(224, 24, 24, 0.1);
+  color: #fff;
+  padding: 10px 12px;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 0.92rem;
+  font-weight: 900;
+}
+
+.upload-progress[hidden] {
+  display: none;
+}
+
+.brabant-flag {
+  position: relative;
+  width: 42px;
+  height: 30px;
+  flex: 0 0 auto;
+  border: 1px solid rgba(255, 255, 255, 0.78);
+  border-radius: 2px;
+  background:
+    linear-gradient(90deg, transparent 0 33.33%, rgba(0, 0, 0, 0.18) 33.33% 36%, transparent 36% 66.66%, rgba(0, 0, 0, 0.18) 66.66% 69%, transparent 69%),
+    linear-gradient(180deg, transparent 0 33.33%, rgba(0, 0, 0, 0.18) 33.33% 36%, transparent 36% 66.66%, rgba(0, 0, 0, 0.18) 66.66% 69%, transparent 69%),
+    conic-gradient(from 90deg, #fff 90deg, #d60000 0 180deg, #fff 0 270deg, #d60000 0);
+  background-size: 100% 100%, 100% 100%, 28px 20px;
+  box-shadow: 0 0 18px rgba(224, 24, 24, 0.36);
+  transform-origin: left center;
+  animation: flag-wave 900ms ease-in-out infinite;
+}
+
+.brabant-flag::before {
+  content: "";
+  position: absolute;
+  left: -5px;
+  top: -4px;
+  width: 3px;
+  height: 38px;
+  border-radius: 999px;
+  background: #f6f6f4;
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.34);
+}
+
+@keyframes flag-wave {
+  0%,
+  100% {
+    transform: perspective(80px) rotateY(-15deg) skewY(-2deg);
+    filter: brightness(0.9);
+  }
+
+  50% {
+    transform: perspective(80px) rotateY(20deg) skewY(3deg);
+    filter: brightness(1.14);
+  }
+}
+
 input[type="text"],
 input[type="email"],
 input[type="password"],
@@ -405,6 +466,27 @@ select:focus {
   flex-wrap: wrap;
   gap: 12px;
   margin: -10px 0 28px;
+}
+
+.small-back-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  margin: -4px 0 14px;
+  border: 1px solid rgba(224, 24, 24, 0.72);
+  border-radius: 8px;
+  background: rgba(224, 24, 24, 0.08);
+  color: #fff;
+  padding: 0 12px;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.small-back-link:hover {
+  background: rgba(224, 24, 24, 0.24);
 }
 
 .secondary-link {

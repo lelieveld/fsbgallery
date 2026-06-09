@@ -761,15 +761,7 @@ function renderGallery(galleries, activeGallery, photos, notice = "", error = ""
           <p class="eyebrow">Foto gallery</p>
           <h1>Kies een galerij</h1>
           <p class="section-line">Open een galerij om de foto's te bekijken, te vergroten en te downloaden.</p>
-          <p class="section-line">Please mention the photographer.</p>
-        </section>
-        <section class="share-callout">
-          <div>
-            <p class="eyebrow">Foto's insturen</p>
-            <h2>Deel jouw foto's</h2>
-            <p class="section-line">Je upload komt eerst in beheer terecht en wordt pas zichtbaar na goedkeuring.</p>
-          </div>
-          <a class="button-link" href="/upload">Upload jouw foto's</a>
+          <p class="section-line">Als je een foto post op social media, vermeld de fotograaf en Fetish Social Brabant.</p>
         </section>
         <section class="gallery-tabs" aria-label="Galerijen">
           ${galleryButtons}
@@ -811,13 +803,10 @@ function renderGallery(galleries, activeGallery, photos, notice = "", error = ""
     `${topbar()}<main class="page">
       <section class="page-heading">
         <p class="eyebrow">Foto gallery</p>
+        <a class="small-back-link" href="/gallery">Terug naar beginscherm</a>
         <h1>${escapeHtml(active.title)}</h1>
         <p class="section-line">Open een thumbnail groter en blader door de foto's.</p>
-        <p class="section-line">Please mention the photographer.</p>
-      </section>
-      <section class="page-actions">
-        <a class="button-link" href="/gallery">Terug naar beginscherm</a>
-        <a class="button-link secondary-link" href="/upload">Deel jouw foto's</a>
+        <p class="section-line">Als je een foto post op social media, vermeld de fotograaf en Fetish Social Brabant.</p>
       </section>
       ${content}
       <div class="lightbox" id="lightbox" aria-hidden="true">
@@ -864,12 +853,18 @@ function renderUploadPage(notice = "", error = "") {
           <p class="field-hint">Je e-mailadres blijft verborgen en is alleen zichtbaar voor beheer.</p>
           <input id="submitter-email" name="email" type="email" required />
           <label for="submitter-photos">Foto's</label>
+          <p class="field-hint">Upload maximaal 60 MB per keer. Bij veel foto's kun je beter meerdere keren uploaden.</p>
           <input id="submitter-photos" name="photos" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple required />
           <button type="submit">Insturen</button>
+          <div class="upload-progress" id="upload-progress" hidden>
+            <span class="brabant-flag" aria-hidden="true"></span>
+            <span>Upload bezig, even geduld...</span>
+          </div>
           ${notice ? `<p class="success">${escapeHtml(notice)}</p>` : ""}
           ${error ? `<p class="error">${escapeHtml(error)}</p>` : ""}
         </form>
       </section>
+      <script src="/upload.js"></script>
     </main>`
   );
 }
@@ -1007,18 +1002,24 @@ function collectBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
+    let tooLarge = false;
 
     req.on("data", (chunk) => {
       size += chunk.length;
       if (size > MAX_UPLOAD_BYTES) {
-        reject(new Error("De upload is te groot. Gebruik maximaal 60 MB per keer."));
-        req.destroy();
+        tooLarge = true;
         return;
       }
-      chunks.push(chunk);
+      if (!tooLarge) chunks.push(chunk);
     });
 
-    req.on("end", () => resolve(Buffer.concat(chunks)));
+    req.on("end", () => {
+      if (tooLarge) {
+        reject(new Error("De upload is te groot. Gebruik maximaal 60 MB per keer."));
+        return;
+      }
+      resolve(Buffer.concat(chunks));
+    });
     req.on("error", reject);
   });
 }
@@ -1136,6 +1137,7 @@ async function serveStatic(req, res, pathname) {
   const staticFiles = new Map([
     ["/styles.css", ["styles.css", "text/css; charset=utf-8"]],
     ["/gallery.js", ["gallery.js", "application/javascript; charset=utf-8"]],
+    ["/upload.js", ["upload.js", "application/javascript; charset=utf-8"]],
     ["/fetish-social-brabant.png", ["fetish-social-brabant.png", "image/png"]]
   ]);
 
