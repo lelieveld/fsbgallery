@@ -175,6 +175,23 @@ label {
   line-height: 1.4;
 }
 
+.checkbox-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 0.86rem;
+  font-weight: 800;
+  text-transform: none;
+}
+
+.checkbox-line input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
+
 input[type="text"],
 input[type="email"],
 input[type="password"],
@@ -365,6 +382,7 @@ select:focus {
   margin-bottom: 18px;
 }
 
+.share-callout,
 .visitor-submit {
   display: grid;
   grid-template-columns: minmax(0, 0.9fr) minmax(280px, 1.1fr);
@@ -376,6 +394,25 @@ select:focus {
   padding: clamp(20px, 4vw, 34px);
   margin-bottom: 34px;
   box-shadow: 0 16px 44px rgba(0, 0, 0, 0.48);
+}
+
+.share-callout {
+  align-items: center;
+}
+
+.page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: -10px 0 28px;
+}
+
+.secondary-link {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.upload-screen {
+  margin-bottom: 0;
 }
 
 .visitor-submit form {
@@ -576,9 +613,29 @@ select:focus {
   white-space: nowrap;
 }
 
+.pending-bulk-form {
+  display: grid;
+  grid-template-columns: auto minmax(220px, 320px) auto;
+  gap: 12px;
+  align-items: end;
+  border: 1px solid rgba(224, 24, 24, 0.72);
+  border-radius: 8px;
+  background: #050505;
+  padding: 14px;
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.38);
+}
+
+.pending-bulk-form label {
+  color: #fff;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 0.84rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
 .pending-row {
   display: grid;
-  grid-template-columns: 112px minmax(160px, 1fr) minmax(220px, 1.1fr) auto;
+  grid-template-columns: 38px 112px minmax(160px, 1fr) auto;
   gap: 14px;
   align-items: center;
   border: 1px solid rgba(224, 24, 24, 0.72);
@@ -586,6 +643,18 @@ select:focus {
   background: #050505;
   padding: 12px;
   box-shadow: 0 16px 44px rgba(0, 0, 0, 0.38);
+}
+
+.pending-check {
+  display: grid;
+  place-items: center;
+}
+
+.pending-check input {
+  width: 22px;
+  height: 22px;
+  accent-color: var(--accent);
+  cursor: pointer;
 }
 
 .pending-row img {
@@ -725,8 +794,13 @@ select:focus {
     display: grid;
   }
 
+  .share-callout,
   .visitor-submit,
   .pending-row {
+    grid-template-columns: 1fr;
+  }
+
+  .pending-bulk-form {
     grid-template-columns: 1fr;
   }
 

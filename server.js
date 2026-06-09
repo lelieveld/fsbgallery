@@ -433,7 +433,8 @@ async function listCloudinaryPhotos(gallerySlug) {
           secureUrl: resource.secure_url,
           uploadedAt: resource.created_at || new Date().toISOString(),
           size: resource.bytes || 0,
-          uploaderName: context.submitter_name || ""
+          uploaderName: context.submitter_name || "",
+          uploaderIsInstagram: context.submitter_is_instagram === "yes"
         };
       });
     } catch (error) {
@@ -510,12 +511,37 @@ function cloudinaryContextValue(value) {
     .replace(/[|=]/g, " ");
 }
 
+function formatUploaderCredit(name, isInstagram = false) {
+  const cleanName = String(name || "").trim();
+  if (!cleanName) return "";
+  if (!isInstagram) return cleanName;
+  return `Instagram ${cleanName.startsWith("@") ? cleanName : `@${cleanName}`}`;
+}
+
+function galleryPhotoPublicName(gallerySlug, number) {
+  return `fsb-${gallerySlug}-${String(number).padStart(3, "0")}`;
+}
+
+async function nextGalleryPhotoNumber(gallerySlug) {
+  const photos = await listCloudinaryPhotos(gallerySlug);
+  const pattern = new RegExp(`^fsb-${gallerySlug.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-(\\d+)$`);
+  const highestNumber = photos.reduce((highest, photo) => {
+    const match = path.basename(photo.publicId || photo.id || "", path.extname(photo.publicId || photo.id || "")).match(pattern);
+    return match ? Math.max(highest, Number(match[1]) || 0) : highest;
+  }, 0);
+  return highestNumber + 1;
+}
+
 async function uploadPendingToCloudinary(file, submitter) {
   if (!cloudinaryConfigured()) throw new Error("Cloudinary is nog niet ingesteld.");
 
   const timestamp = Math.floor(Date.now() / 1000);
   const folder = `${CLOUDINARY_BASE_FOLDER}/pending`;
-  const context = `submitter_name=${cloudinaryContextValue(submitter.name)}|submitter_email=${cloudinaryContextValue(submitter.email)}`;
+  const context = [
+    `submitter_name=${cloudinaryContextValue(submitter.name)}`,
+    `submitter_email=${cloudinaryContextValue(submitter.email)}`,
+    `submitter_is_instagram=${submitter.isInstagram ? "yes" : "no"}`
+  ].join("|");
   const uploadParams = { context, folder, timestamp };
   const signature = cloudinarySignature(uploadParams);
   const dataUri = `data:${file.contentType};base64,${file.data.toString("base64")}`;
@@ -550,20 +576,21 @@ async function listPendingUploads() {
       secureUrl: resource.secure_url,
       uploadedAt: resource.created_at || new Date().toISOString(),
       submitterName: context.submitter_name || "Onbekend",
-      submitterEmail: context.submitter_email || "Onbekend"
+      submitterEmail: context.submitter_email || "Onbekend",
+      submitterIsInstagram: context.submitter_is_instagram === "yes"
     };
   });
 }
 
-async function approvePendingUpload(publicId, gallerySlug, uploaderName = "") {
+async function approvePendingUpload(publicId, gallerySlug, uploaderName = "", uploaderIsInstagram = false, publicName = "") {
   if (!cloudinaryConfigured()) throw new Error("Cloudinary is nog niet ingesteld.");
 
   const galleries = await listGalleries();
   if (!galleries.some((gallery) => gallery.slug === gallerySlug)) throw new Error("Deze galerij bestaat niet.");
 
   const timestamp = Math.floor(Date.now() / 1000);
-  const extensionlessName = path.basename(publicId);
-  const toPublicId = `${CLOUDINARY_BASE_FOLDER}/${gallerySlug}/${Date.now()}-${extensionlessName}`;
+  const cleanPublicName = publicName || galleryPhotoPublicName(gallerySlug, await nextGalleryPhotoNumber(gallerySlug));
+  const toPublicId = `${CLOUDINARY_BASE_FOLDER}/${gallerySlug}/${cleanPublicName}`;
   const params = { from_public_id: publicId, overwrite: "true", timestamp, to_public_id: toPublicId };
   const signature = cloudinarySignature(params);
   await postCloudinary("/image/rename", {
@@ -572,14 +599,23 @@ async function approvePendingUpload(publicId, gallerySlug, uploaderName = "") {
     signature
   });
 
-  const context = `submitter_name=${cloudinaryContextValue(uploaderName)}`;
-  const contextTimestamp = Math.floor(Date.now() / 1000);
-  const contextParams = { context, public_id: toPublicId, timestamp: contextTimestamp, type: "upload" };
-  await postCloudinary("/image/upload/explicit", {
-    ...contextParams,
-    api_key: CLOUDINARY_API_KEY,
-    signature: cloudinarySignature(contextParams)
-  });
+  if (uploaderName) {
+    try {
+      const context = [
+        `submitter_name=${cloudinaryContextValue(uploaderName)}`,
+        `submitter_is_instagram=${uploaderIsInstagram ? "yes" : "no"}`
+      ].join("|");
+      const contextTimestamp = Math.floor(Date.now() / 1000);
+      const contextParams = { context, public_id: toPublicId, timestamp: contextTimestamp, type: "upload" };
+      await postCloudinary("/image/explicit", {
+        ...contextParams,
+        api_key: CLOUDINARY_API_KEY,
+        signature: cloudinarySignature(contextParams)
+      });
+    } catch (error) {
+      console.error("Uploadernaam opslaan mislukt:", error.message);
+    }
+  }
 }
 
 async function destroyCloudinaryImage(publicId) {
@@ -654,6 +690,7 @@ function topbar() {
     <a class="brand" href="/gallery"><span>Fetish</span> Social Brabant</a>
     <nav aria-label="Navigatie">
       <a href="/gallery">Galerij</a>
+      <a href="/upload">Upload jouw foto's</a>
       <a href="/admin">Beheer</a>
       <form action="/logout" method="post"><button class="text-button" type="submit">Uitloggen</button></form>
     </nav>
@@ -707,15 +744,41 @@ function renderAdminLogin(error = "") {
 }
 
 function renderGallery(galleries, activeGallery, photos, notice = "", error = "") {
-  const active = activeGallery || galleries[0];
   const galleryButtons = galleries
     .map(
-      (gallery) => `<a class="gallery-tab ${gallery.slug === active.slug ? "is-active" : ""}" href="/gallery?g=${encodeURIComponent(gallery.slug)}">
+      (gallery) => `<a class="gallery-tab ${activeGallery?.slug === gallery.slug ? "is-active" : ""}" href="/gallery?g=${encodeURIComponent(gallery.slug)}">
         <span>${escapeHtml(gallery.title)}</span>
         <small>Bekijk & download</small>
       </a>`
     )
     .join("");
+
+  if (!activeGallery) {
+    return pageShell(
+      "Galerijen",
+      `${topbar()}<main class="page">
+        <section class="page-heading">
+          <p class="eyebrow">Foto gallery</p>
+          <h1>Kies een galerij</h1>
+          <p class="section-line">Open een galerij om de foto's te bekijken, te vergroten en te downloaden.</p>
+          <p class="section-line">Please mention the photographer.</p>
+        </section>
+        <section class="share-callout">
+          <div>
+            <p class="eyebrow">Foto's insturen</p>
+            <h2>Deel jouw foto's</h2>
+            <p class="section-line">Je upload komt eerst in beheer terecht en wordt pas zichtbaar na goedkeuring.</p>
+          </div>
+          <a class="button-link" href="/upload">Upload jouw foto's</a>
+        </section>
+        <section class="gallery-tabs" aria-label="Galerijen">
+          ${galleryButtons}
+        </section>
+      </main>`
+    );
+  }
+
+  const active = activeGallery;
 
   const content = photos.length
     ? `<section class="photo-grid" aria-label="Foto's">
@@ -728,7 +791,7 @@ function renderGallery(galleries, activeGallery, photos, notice = "", error = ""
               <button class="thumbnail-button" type="button" data-index="${index}" data-src="${photoUrl}" data-name="${escapeHtml(cleanName)}" data-download="${downloadUrl}">
                 <img src="${photoUrl}" alt="Foto ${escapeHtml(photo.name)}" loading="lazy" />
               </button>
-              ${photo.uploaderName ? `<p class="photo-credit">photo's by: ${escapeHtml(photo.uploaderName)}</p>` : ""}
+              ${photo.uploaderName ? `<p class="photo-credit">photo by: ${escapeHtml(formatUploaderCredit(photo.uploaderName, photo.uploaderIsInstagram))}</p>` : ""}
               <div class="photo-actions">
                 <span>${escapeHtml(cleanName)}</span>
                 <a href="${downloadUrl}">Download</a>
@@ -748,35 +811,13 @@ function renderGallery(galleries, activeGallery, photos, notice = "", error = ""
     `${topbar()}<main class="page">
       <section class="page-heading">
         <p class="eyebrow">Foto gallery</p>
-        <h1>Bekijk & download</h1>
-        <p class="section-line">Kies een galerij, open een thumbnail groter en blader door de foto's.</p>
+        <h1>${escapeHtml(active.title)}</h1>
+        <p class="section-line">Open een thumbnail groter en blader door de foto's.</p>
+        <p class="section-line">Please mention the photographer.</p>
       </section>
-      <section class="visitor-submit">
-        <div>
-          <p class="eyebrow">Foto's insturen</p>
-          <h2>Deel jouw foto's</h2>
-          <p class="section-line">Je upload komt eerst in beheer terecht. Pas na goedkeuring wordt hij zichtbaar voor iedereen.</p>
-        </div>
-        <form action="/submit-photos" method="post" enctype="multipart/form-data">
-          <label for="submitter-name">Naam</label>
-          <p class="field-hint">Deze naam wordt zichtbaar voor alle bezoekers als je foto wordt goedgekeurd.</p>
-          <input id="submitter-name" name="name" type="text" required />
-          <label for="submitter-email">E-mail</label>
-          <p class="field-hint">Je e-mailadres blijft verborgen en is alleen zichtbaar voor beheer.</p>
-          <input id="submitter-email" name="email" type="email" required />
-          <label for="submitter-photos">Foto's</label>
-          <input id="submitter-photos" name="photos" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple required />
-          <button type="submit">Insturen</button>
-          ${notice ? `<p class="success">${escapeHtml(notice)}</p>` : ""}
-          ${error ? `<p class="error">${escapeHtml(error)}</p>` : ""}
-        </form>
-      </section>
-      <section class="gallery-tabs" aria-label="Galerijen">
-        ${galleryButtons}
-      </section>
-      <section class="gallery-title">
-        <p class="eyebrow">Geselecteerd</p>
-        <h2>${escapeHtml(active.title)}</h2>
+      <section class="page-actions">
+        <a class="button-link" href="/gallery">Terug naar beginscherm</a>
+        <a class="button-link secondary-link" href="/upload">Deel jouw foto's</a>
       </section>
       ${content}
       <div class="lightbox" id="lightbox" aria-hidden="true">
@@ -792,6 +833,43 @@ function renderGallery(galleries, activeGallery, photos, notice = "", error = ""
         <button class="lightbox-nav lightbox-next" type="button" aria-label="Volgende foto">›</button>
       </div>
       <script src="/gallery.js"></script>
+    </main>`
+  );
+}
+
+function renderUploadPage(notice = "", error = "") {
+  return pageShell(
+    "Upload jouw foto's",
+    `${topbar()}<main class="page">
+      <section class="page-heading">
+        <p class="eyebrow">Foto's insturen</p>
+        <h1>Upload jouw foto's</h1>
+        <p class="section-line">Je upload komt eerst in beheer terecht. Pas na goedkeuring wordt hij zichtbaar voor iedereen.</p>
+      </section>
+      <section class="visitor-submit upload-screen">
+        <div>
+          <p class="eyebrow">Goed om te weten</p>
+          <h2>Deel jouw foto's</h2>
+          <p class="section-line">Je naam kan bij goedgekeurde foto's zichtbaar worden. Je e-mailadres blijft verborgen en is alleen zichtbaar voor beheer.</p>
+        </div>
+        <form action="/submit-photos" method="post" enctype="multipart/form-data">
+          <label for="submitter-name">Naam</label>
+          <p class="field-hint">Deze naam wordt zichtbaar voor alle bezoekers als je foto wordt goedgekeurd. Dit mag ook je Instagram naam zijn.</p>
+          <input id="submitter-name" name="name" type="text" required />
+          <label class="checkbox-line" for="submitter-instagram">
+            <input id="submitter-instagram" name="isInstagram" type="checkbox" value="yes" />
+            <span>Dit is een Instagram naam</span>
+          </label>
+          <label for="submitter-email">E-mail</label>
+          <p class="field-hint">Je e-mailadres blijft verborgen en is alleen zichtbaar voor beheer.</p>
+          <input id="submitter-email" name="email" type="email" required />
+          <label for="submitter-photos">Foto's</label>
+          <input id="submitter-photos" name="photos" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple required />
+          <button type="submit">Insturen</button>
+          ${notice ? `<p class="success">${escapeHtml(notice)}</p>` : ""}
+          ${error ? `<p class="error">${escapeHtml(error)}</p>` : ""}
+        </form>
+      </section>
     </main>`
   );
 }
@@ -854,20 +932,15 @@ function renderAdmin(galleries, photoMap, downloads, pendingUploads, message = "
     ? pendingUploads
         .map(
           (photo) => `<article class="pending-row">
+            <label class="pending-check" title="Selecteer deze foto">
+              <input form="bulk-approve-form" type="checkbox" name="photos" value="${escapeHtml(photo.publicId)}" />
+            </label>
             <img src="${escapeHtml(photo.secureUrl)}" alt="Ingezonden foto ${escapeHtml(photo.name)}" loading="lazy" />
             <div>
-              <span>${escapeHtml(photo.submitterName)}</span>
+              <span>${escapeHtml(formatUploaderCredit(photo.submitterName, photo.submitterIsInstagram))}</span>
               <small>${escapeHtml(photo.submitterEmail)}</small>
               <small>${escapeHtml(formatDate(photo.uploadedAt))}</small>
             </div>
-            <form action="/admin/approve-submission/${encodeURIComponent(photo.publicId)}" method="post">
-              <input type="hidden" name="uploaderName" value="${escapeHtml(photo.submitterName)}" />
-              <label for="approve-${escapeHtml(photo.publicId)}">Naar galerij</label>
-              <select id="approve-${escapeHtml(photo.publicId)}" name="gallery" required>
-                ${galleryOptions}
-              </select>
-              <button type="submit">Goedkeuren</button>
-            </form>
             <form action="/admin/reject-submission/${encodeURIComponent(photo.publicId)}" method="post">
               <button class="danger-button" type="submit">Afwijzen</button>
             </form>
@@ -875,6 +948,15 @@ function renderAdmin(galleries, photoMap, downloads, pendingUploads, message = "
         )
         .join("")
     : `<p class="muted">Er zijn geen nieuwe inzendingen.</p>`;
+  const pendingBulkControls = pendingUploads.length
+    ? `<form id="bulk-approve-form" class="pending-bulk-form" action="/admin/approve-submissions" method="post">
+        <label for="bulk-gallery">Gekozen foto's naar</label>
+        <select id="bulk-gallery" name="gallery" required>
+          ${galleryOptions}
+        </select>
+        <button type="submit">Aangevinkte foto's goedkeuren</button>
+      </form>`
+    : "";
 
   return pageShell(
     "Foto's beheren",
@@ -903,6 +985,7 @@ function renderAdmin(galleries, photoMap, downloads, pendingUploads, message = "
       </section>
       <section class="pending-list" aria-label="Ingezonden foto's">
         <h2>Inzendingen</h2>
+        ${pendingBulkControls}
         ${pendingRows}
       </section>
       ${galleryRows}
@@ -1038,13 +1121,14 @@ async function saveVisitorSubmission(req) {
   const { files, fields } = parseMultipart(body, boundaryMatch[1] || boundaryMatch[2]);
   const name = String(fields.name || "").trim().slice(0, 80);
   const email = String(fields.email || "").trim().slice(0, 120);
+  const isInstagram = fields.isInstagram === "yes";
 
   if (!name) throw new Error("Naam is verplicht.");
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("Vul een geldig e-mailadres in.");
   if (files.length === 0) throw new Error("Kies minimaal een JPG, PNG, WebP of GIF.");
 
   for (const file of files) {
-    await uploadPendingToCloudinary(file, { name, email });
+    await uploadPendingToCloudinary(file, { name, email, isInstagram });
   }
 }
 
@@ -1142,9 +1226,9 @@ async function handleRequest(req, res) {
   if (req.method === "POST" && pathname === "/submit-photos") {
     try {
       await saveVisitorSubmission(req);
-      redirect(res, "/gallery?message=Foto%27s%20zijn%20ingestuurd%20en%20wachten%20op%20goedkeuring.");
+      redirect(res, "/upload?message=Foto%27s%20zijn%20succesvol%20geupload%20en%20wachten%20op%20goedkeuring.");
     } catch (error) {
-      redirect(res, `/gallery?error=${encodeURIComponent(error.message)}`);
+      redirect(res, `/upload?error=${encodeURIComponent(error.message)}`);
     }
     return;
   }
@@ -1168,11 +1252,54 @@ async function handleRequest(req, res) {
   if (req.method === "GET" && pathname === "/gallery") {
     const galleries = await listGalleries();
     const requestedSlug = slugify(url.searchParams.get("g") || "");
-    const activeGallery = galleries.find((gallery) => gallery.slug === requestedSlug) || galleries[0];
+    const activeGallery = requestedSlug ? galleries.find((gallery) => gallery.slug === requestedSlug) : null;
     sendHtml(
       res,
-      renderGallery(galleries, activeGallery, await listPhotos(activeGallery.slug), url.searchParams.get("message") || "", url.searchParams.get("error") || "")
+      renderGallery(galleries, activeGallery, activeGallery ? await listPhotos(activeGallery.slug) : [])
     );
+    return;
+  }
+
+  if (req.method === "GET" && pathname === "/upload") {
+    sendHtml(res, renderUploadPage(url.searchParams.get("message") || "", url.searchParams.get("error") || ""));
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/admin/approve-submissions") {
+    if (!isAdmin(req)) {
+      redirect(res, "/admin");
+      return;
+    }
+
+    try {
+      const fields = parseUrlEncoded(await collectBody(req));
+      const gallerySlug = slugify(fields.get("gallery") || "");
+      const selectedPublicIds = fields.getAll("photos").filter(Boolean);
+      if (!gallerySlug) {
+        throw new Error("Kies eerst een galerij.");
+      }
+      if (!selectedPublicIds.length) {
+        throw new Error("Vink eerst een of meer foto's aan.");
+      }
+
+      const pendingUploads = await listPendingUploads();
+      const pendingById = new Map(pendingUploads.map((photo) => [photo.publicId, photo]));
+      const firstPhotoNumber = await nextGalleryPhotoNumber(gallerySlug);
+      for (const [index, publicId] of selectedPublicIds.entries()) {
+        const pendingPhoto = pendingById.get(publicId);
+        await approvePendingUpload(
+          publicId,
+          gallerySlug,
+          pendingPhoto?.submitterName || "",
+          pendingPhoto?.submitterIsInstagram || false,
+          galleryPhotoPublicName(gallerySlug, firstPhotoNumber + index)
+        );
+      }
+
+      redirect(res, `/admin?message=${encodeURIComponent(`${selectedPublicIds.length} foto(s) goedgekeurd.`)}`);
+    } catch (error) {
+      redirect(res, `/admin?error=${encodeURIComponent(error.message)}`);
+    }
     return;
   }
 
@@ -1185,7 +1312,7 @@ async function handleRequest(req, res) {
     try {
       const publicId = pathname.replace("/admin/approve-submission/", "");
       const fields = parseUrlEncoded(await collectBody(req));
-      await approvePendingUpload(publicId, slugify(fields.get("gallery") || ""), fields.get("uploaderName") || "");
+      await approvePendingUpload(publicId, slugify(fields.get("gallery") || ""), fields.get("uploaderName") || "", fields.get("uploaderIsInstagram") === "yes");
       redirect(res, "/admin?message=Inzending%20goedgekeurd.");
     } catch (error) {
       redirect(res, `/admin?error=${encodeURIComponent(error.message)}`);
