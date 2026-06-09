@@ -584,6 +584,23 @@ select:focus {
   white-space: nowrap;
 }
 
+.manage-photo-info {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.manage-photo-info small {
+  min-width: 0;
+  color: var(--muted);
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 0.76rem;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .photo-actions a {
   color: var(--accent-hot);
   font-family: Arial, Helvetica, sans-serif;
@@ -602,7 +619,7 @@ select:focus {
   border: 1px solid var(--accent);
   border-radius: 8px;
   background: linear-gradient(180deg, rgba(18, 18, 18, 0.98), rgba(4, 4, 4, 0.98));
-  padding: clamp(18px, 3vw, 28px);
+  padding: 0;
   box-shadow: 0 16px 44px rgba(0, 0, 0, 0.48);
 }
 
@@ -611,7 +628,44 @@ select:focus {
   align-items: flex-start;
   justify-content: space-between;
   gap: 18px;
+  padding: clamp(16px, 3vw, 24px);
+  cursor: pointer;
+  list-style: none;
+}
+
+.admin-gallery-head::-webkit-details-marker {
+  display: none;
+}
+
+.admin-gallery-head::after {
+  content: "+";
+  color: var(--accent-hot);
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.admin-gallery[open] .admin-gallery-head::after {
+  content: "-";
+}
+
+.admin-gallery-tools,
+.admin-gallery .upload-form,
+.admin-gallery .manage-list {
+  margin: 0 clamp(16px, 3vw, 24px) clamp(16px, 3vw, 24px);
+}
+
+.admin-gallery-tools {
+  display: flex;
+  justify-content: flex-end;
   margin-bottom: 18px;
+}
+
+.gallery-photo-count {
+  color: var(--muted);
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 0.82rem;
+  font-weight: 900;
+  text-transform: uppercase;
 }
 
 .upload-form {

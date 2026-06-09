@@ -434,6 +434,7 @@ async function listCloudinaryPhotos(gallerySlug) {
           uploadedAt: resource.created_at || new Date().toISOString(),
           size: resource.bytes || 0,
           uploaderName: context.submitter_name || "",
+          uploaderEmail: context.submitter_email || "",
           uploaderIsInstagram: context.submitter_is_instagram === "yes"
         };
       });
@@ -582,7 +583,7 @@ async function listPendingUploads() {
   });
 }
 
-async function approvePendingUpload(publicId, gallerySlug, uploaderName = "", uploaderIsInstagram = false, publicName = "") {
+async function approvePendingUpload(publicId, gallerySlug, uploaderName = "", uploaderIsInstagram = false, publicName = "", uploaderEmail = "") {
   if (!cloudinaryConfigured()) throw new Error("Cloudinary is nog niet ingesteld.");
 
   const galleries = await listGalleries();
@@ -603,6 +604,7 @@ async function approvePendingUpload(publicId, gallerySlug, uploaderName = "", up
     try {
       const context = [
         `submitter_name=${cloudinaryContextValue(uploaderName)}`,
+        `submitter_email=${cloudinaryContextValue(uploaderEmail)}`,
         `submitter_is_instagram=${uploaderIsInstagram ? "yes" : "no"}`
       ].join("|");
       const contextTimestamp = Math.floor(Date.now() / 1000);
@@ -878,7 +880,10 @@ function renderAdmin(galleries, photoMap, downloads, pendingUploads, message = "
             .map(
               (photo) => `<article class="manage-row">
                 <img src="${escapeHtml(photo.url)}" alt="Foto ${escapeHtml(photo.name)}" loading="lazy" />
-                <span>${escapeHtml(photo.name.replace(/^\d+-/, ""))}</span>
+                <div class="manage-photo-info">
+                  <span>${escapeHtml(photo.name.replace(/^\d+-/, ""))}</span>
+                  ${photo.uploaderEmail ? `<small>${escapeHtml(photo.uploaderEmail)}</small>` : `<small>Geen uploader e-mail bekend</small>`}
+                </div>
                 <form action="/admin/delete-photo/${encodeURIComponent(gallery.slug)}/${encodeURIComponent(photo.source === "cloudinary" ? photo.id : photo.name)}" method="post">
                   <button class="danger-button" type="submit">Verwijderen</button>
                 </form>
@@ -887,12 +892,15 @@ function renderAdmin(galleries, photoMap, downloads, pendingUploads, message = "
             .join("")
         : `<p class="muted">Nog geen foto's in deze galerij.</p>`;
 
-      return `<section class="admin-gallery">
-        <div class="admin-gallery-head">
+      return `<details class="admin-gallery">
+        <summary class="admin-gallery-head">
           <div>
             <p class="eyebrow">Galerij</p>
             <h2>${escapeHtml(gallery.title)}</h2>
           </div>
+          <span class="gallery-photo-count">${photos.length} foto(s)</span>
+        </summary>
+        <div class="admin-gallery-tools">
           <form action="/admin/delete-gallery/${encodeURIComponent(gallery.slug)}" method="post">
             <button class="danger-button" type="submit">Galerij verwijderen</button>
           </form>
@@ -905,7 +913,7 @@ function renderAdmin(galleries, photoMap, downloads, pendingUploads, message = "
         <div class="manage-list" aria-label="Foto's in ${escapeHtml(gallery.title)}">
           ${photoRows}
         </div>
-      </section>`;
+      </details>`;
     })
     .join("");
 
@@ -961,22 +969,10 @@ function renderAdmin(galleries, photoMap, downloads, pendingUploads, message = "
         <h1>Galerijen beheren</h1>
         <p class="section-line">Maak galerijen aan, verwijder galerijen en upload of verwijder foto's per galerij.</p>
       </section>
-      <section class="upload-panel">
+      <section class="upload-panel admin-status-panel">
         <p class="cloudinary-status">${cloudinaryConfigured() ? "Cloudinary opslag is actief." : "Cloudinary is nog niet ingesteld; uploads blijven tijdelijk lokaal."}</p>
-        <form action="/admin/create-gallery" method="post">
-          <label for="gallery-title">Nieuwe galerij aanmaken</label>
-          <input id="gallery-title" name="title" type="text" placeholder="Bijvoorbeeld: Nieuwe social foto's" required />
-          <button type="submit">Galerij aanmaken</button>
-        </form>
         ${message ? `<p class="success">${escapeHtml(message)}</p>` : ""}
         ${error ? `<p class="error">${escapeHtml(error)}</p>` : ""}
-      </section>
-      <section class="upload-panel">
-        <form action="/admin/update-visitor-password" method="post">
-          <label for="visitor-password">Bezoekerswachtwoord aanpassen</label>
-          <input id="visitor-password" name="password" type="password" autocomplete="new-password" minlength="6" required />
-          <button type="submit">Wachtwoord opslaan</button>
-        </form>
       </section>
       <section class="pending-list" aria-label="Ingezonden foto's">
         <h2>Inzendingen</h2>
@@ -993,6 +989,20 @@ function renderAdmin(galleries, photoMap, downloads, pendingUploads, message = "
           <span>Tijd</span>
         </div>
         ${downloadRows}
+      </section>
+      <section class="upload-panel">
+        <form action="/admin/update-visitor-password" method="post">
+          <label for="visitor-password">Bezoekerswachtwoord aanpassen</label>
+          <input id="visitor-password" name="password" type="password" autocomplete="new-password" minlength="6" required />
+          <button type="submit">Wachtwoord opslaan</button>
+        </form>
+      </section>
+      <section class="upload-panel">
+        <form action="/admin/create-gallery" method="post">
+          <label for="gallery-title">Nieuwe galerij aanmaken</label>
+          <input id="gallery-title" name="title" type="text" placeholder="Bijvoorbeeld: Nieuwe social foto's" required />
+          <button type="submit">Galerij aanmaken</button>
+        </form>
       </section>
     </main>`
   );
@@ -1294,7 +1304,8 @@ async function handleRequest(req, res) {
           gallerySlug,
           pendingPhoto?.submitterName || "",
           pendingPhoto?.submitterIsInstagram || false,
-          galleryPhotoPublicName(gallerySlug, firstPhotoNumber + index)
+          galleryPhotoPublicName(gallerySlug, firstPhotoNumber + index),
+          pendingPhoto?.submitterEmail || ""
         );
       }
 
@@ -1314,7 +1325,14 @@ async function handleRequest(req, res) {
     try {
       const publicId = pathname.replace("/admin/approve-submission/", "");
       const fields = parseUrlEncoded(await collectBody(req));
-      await approvePendingUpload(publicId, slugify(fields.get("gallery") || ""), fields.get("uploaderName") || "", fields.get("uploaderIsInstagram") === "yes");
+      await approvePendingUpload(
+        publicId,
+        slugify(fields.get("gallery") || ""),
+        fields.get("uploaderName") || "",
+        fields.get("uploaderIsInstagram") === "yes",
+        "",
+        fields.get("uploaderEmail") || ""
+      );
       redirect(res, "/admin?message=Inzending%20goedgekeurd.");
     } catch (error) {
       redirect(res, `/admin?error=${encodeURIComponent(error.message)}`);
